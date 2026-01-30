@@ -389,3 +389,10 @@ endif()
 
 
 install(TARGETS trunk-recorder RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# Standalone Test
+add_executable(test_agc tests/test_agc.cc)
+target_link_libraries(test_agc trunk_recorder_library ${Boost_LIBRARIES} ${GNURADIO_RUNTIME_LIBRARIES} ${GNURADIO_BLOCKS_LIBRARIES} ${GNURADIO_FILTER_LIBRARIES} ${GNURADIO_FFT_LIBRARIES})
+if(NOT Gnuradio_VERSION VERSION_LESS "3.8")
+    target_link_libraries(test_agc gnuradio::gnuradio-runtime gnuradio::gnuradio-blocks gnuradio::gnuradio-filter gnuradio::gnuradio-fft)
+endif()
