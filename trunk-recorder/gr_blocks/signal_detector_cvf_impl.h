@@ -22,6 +22,7 @@
 #define INCLUDED_INSPECTOR_SIGNAL_DETECTOR_CVF_IMPL_H
 #include "./signal_detector_cvf.h"
 #include <boost/log/trivial.hpp>
+#include <atomic>
 #include <fstream>
 #include <gnuradio/fft/fft.h>
 #include <gnuradio/fft/window.h>
@@ -59,6 +60,7 @@ private:
 #endif
   std::vector<float> d_freq;
   const char *d_filename;
+  std::atomic<long> clipping_count;
   uint64_t time_since_epoch_millisec();
 
 public:
@@ -89,6 +91,9 @@ public:
   void periodogram(float *pxx, const gr_complex *signal);
 
   std::vector<Detected_Signal> get_detected_signals();
+
+  long get_clipping_count();
+  void reset_clipping_count();
 
   int work(int noutput_items,
            gr_vector_const_void_star &input_items,

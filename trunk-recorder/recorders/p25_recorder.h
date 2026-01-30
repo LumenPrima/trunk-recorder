@@ -15,6 +15,7 @@
 #include <boost/shared_ptr.hpp>
 
 #include "recorder.h"
+#include <op25_repeater/rx_status.h>
 
 class Source;
 class p25_recorder;
@@ -59,6 +60,7 @@ public:
   virtual long elapsed() = 0;
   virtual Source *get_source() = 0;
   virtual void autotune() = 0;
+  virtual Rx_Status get_rx_status() = 0;
 };
 
 #endif // ifndef P25_RECORDER_H

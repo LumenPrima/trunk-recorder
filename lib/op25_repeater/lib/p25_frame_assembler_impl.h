@@ -90,6 +90,7 @@ public:
 
       void clear_silence_frame_count();
       void clear();
+      Rx_Status get_rx_status();
       log_ts logts;
     };
 

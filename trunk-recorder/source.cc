@@ -1,5 +1,6 @@
 #include "source.h"
 #include "formatter.h"
+#include <unistd.h>
 
 using json = nlohmann::json;
 
@@ -67,6 +68,9 @@ Source::Source(double c, double r, double e, std::string drv, std::string dev, C
   next_selector_port = 0;
   autotune_source = false;
   autotune_manager = new AutotuneManager(this);
+  gain_control_state.last_update = time(NULL);
+  gain_control_state.avg_error_rate = 0;
+  gain_control_state.samples = 0;
 
   recorder_selector = gr::blocks::selector::make(sizeof(gr_complex), 0, 0);
 
@@ -212,6 +216,9 @@ Source::Source(std::string sigmf_meta, std::string sigmf_data, bool repeat, Conf
 
 Source::Source(std::string iq_file, bool repeat, double center, double rate, Config *cfg) {
   config = cfg;
+  gain_control_state.last_update = time(NULL);
+  gain_control_state.avg_error_rate = 0;
+  gain_control_state.samples = 0;
   set_iq_source(iq_file, repeat, center, rate);
 }
 
@@ -853,4 +860,95 @@ std::vector<Recorder *> Source::get_recorders() {
     recorders.push_back((Recorder *)rx.get());
   }
   return recorders;
+}
+
+void Source::calibrate_gain() {
+    BOOST_LOG_TRIVIAL(info) << "[Source " << src_num << "] Starting Gain Calibration...";
+
+    double best_gain = 0;
+    double best_score = -1e9;
+
+    // Test range: 0 to 45 dB in 5 dB steps
+    for (double g = 0; g <= 45; g += 5) {
+        set_gain(g);
+        usleep(200000); // Wait 200ms for gain to settle
+
+        signal_detector->reset_clipping_count();
+        usleep(500000); // Measure for 500ms
+
+        long clippings = signal_detector->get_clipping_count();
+        std::vector<Detected_Signal> signals = signal_detector->get_detected_signals();
+
+        double max_rssi = -100;
+        double noise_floor = -100;
+
+        if (!signals.empty()) {
+            for (auto& s : signals) {
+                if (s.max_rssi > max_rssi) max_rssi = s.max_rssi;
+                noise_floor = s.threshold; // Approx noise floor
+            }
+        }
+
+        double dynamic_range = max_rssi - noise_floor;
+        double score = dynamic_range;
+
+        if (clippings > 0) {
+            score -= 1000; // Heavy penalty for clipping
+        }
+
+        BOOST_LOG_TRIVIAL(info) << "  Gain: " << g << " Clipping: " << clippings
+                                << " DynRange: " << dynamic_range << " Score: " << score;
+
+        if (score > best_score) {
+            best_score = score;
+            best_gain = g;
+        }
+    }
+
+    BOOST_LOG_TRIVIAL(info) << "[Source " << src_num << "] Calibration Complete. Best Gain: " << best_gain;
+    set_gain(best_gain);
+}
+
+void Source::process_gain_control() {
+    time_t current_time = time(NULL);
+    if (current_time - gain_control_state.last_update < 5) {
+        return; // Only run every 5 seconds
+    }
+
+    long clipping = signal_detector->get_clipping_count();
+    signal_detector->reset_clipping_count();
+
+    // Collect error stats from P25 recorders
+    double total_errors = 0;
+    long count = 0;
+
+    for (auto& rx : digital_recorders) {
+        if (rx->is_active()) {
+            Rx_Status status = rx->get_rx_status();
+             // Note: get_rx_status() resets stats in assembler, so we get incremental stats
+             if (status.total_len > 0) {
+                 double rate = (double)status.error_count / status.total_len; // errors per sample? or frame?
+                 // status.total_len is in ... ?
+                 // Actually Rx_Status definition says double total_len.
+                 // p25_recorder_decode sets tags: error_count.
+                 // Let's assume error_count is absolute count.
+                 total_errors += status.error_count;
+                 count++;
+             }
+        }
+    }
+
+    double current_gain = get_gain();
+
+    if (clipping > 50) { // Some tolerance
+        BOOST_LOG_TRIVIAL(info) << "[Source " << src_num << "] High Clipping (" << clipping << "). Reducing Gain.";
+        set_gain(current_gain - 2);
+    } else if (count > 0 && total_errors > 50) { // If we have errors (threshold heuristic)
+        if (clipping == 0) {
+             BOOST_LOG_TRIVIAL(info) << "[Source " << src_num << "] High Errors (" << total_errors << ") & No Clipping. Increasing Gain.";
+             set_gain(current_gain + 2);
+        }
+    }
+
+    gain_control_state.last_update = current_time;
 }

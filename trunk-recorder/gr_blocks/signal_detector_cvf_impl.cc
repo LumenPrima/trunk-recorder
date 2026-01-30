@@ -96,6 +96,7 @@ signal_detector_cvf_impl::signal_detector_cvf_impl(double samp_rate,
   d_max_bw = max_bw;
   d_filename = filename;
   d_detected_signals = std::vector<Detected_Signal>();
+  clipping_count = 0;
   last_conventional_channel_detection_check = time_since_epoch_millisec();
 
 
@@ -387,6 +388,14 @@ std::vector<Detected_Signal> signal_detector_cvf_impl::get_detected_signals() {
   return safe_version;
 }
 
+long signal_detector_cvf_impl::get_clipping_count() {
+  return clipping_count.load();
+}
+
+void signal_detector_cvf_impl::reset_clipping_count() {
+  clipping_count.store(0);
+}
+
 //</editor-fold>
 
 //<editor-fold desc="GR Stuff">
@@ -396,6 +405,12 @@ int signal_detector_cvf_impl::work(int noutput_items,
                                    gr_vector_void_star &output_items) {
   const gr_complex *in = (const gr_complex *)input_items[0];
   // float* out = (float*)output_items[0];
+
+  for (unsigned int i = 0; i < d_fft_len; i++) {
+    if (std::abs(in[i].real()) > 0.95 || std::abs(in[i].imag()) > 0.95) {
+       clipping_count++;
+    }
+  }
 
     uint64_t current_time_ms = time_since_epoch_millisec();
     if ((current_time_ms - last_conventional_channel_detection_check) >= 100.0) { //0.05) {

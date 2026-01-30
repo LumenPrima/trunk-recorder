@@ -64,6 +64,7 @@ namespace gr {
       virtual void set_phase2_tdma(bool p) {}
       virtual void clear() {};
       virtual  void clear_silence_frame_count() {};
+      virtual Rx_Status get_rx_status() { return Rx_Status(); }
     };
 
   } // namespace op25_repeater

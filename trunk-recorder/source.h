@@ -160,6 +160,17 @@ public:
   void add_autotune_error_measurement(int error, int offset);
   int get_source_error();
 
+  // Auto Gain Control
+  void calibrate_gain();
+  void process_gain_control();
+
+  struct GainControlState {
+    time_t last_update;
+    double avg_error_rate;
+    int samples;
+  };
+  GainControlState gain_control_state;
+
 #if GNURADIO_VERSION < 0x030900
   inline osmosdr::source::sptr cast_to_osmo_sptr(gr::basic_block_sptr p) {
     return boost::dynamic_pointer_cast<osmosdr::source, gr::basic_block>(p);
