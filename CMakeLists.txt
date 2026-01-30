@@ -85,6 +85,10 @@ endif()
 find_package(Gnuradio REQUIRED)
 include(GrVersion)
 
+if(GnuradioOsmosdr_FOUND OR GNURADIO_OSMOSDR_FOUND)
+    add_definitions(-DHAVE_GNURADIO_OSMOSDR)
+endif()
+
 set(GR_REQUIRED_COMPONENTS RUNTIME ANALOG BLOCKS DIGITAL FILTER FFT PMT)
 find_package(Gnuradio REQUIRED COMPONENTS runtime analog blocks digital filter fft)
 if(Gnuradio_VERSION VERSION_LESS "3.8")
