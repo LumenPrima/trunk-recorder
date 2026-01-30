@@ -77,6 +77,11 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 # Install directories
 ########################################################################
 include(FindPkgConfig)
+
+if(WIN32)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+endif()
+
 find_package(Gnuradio REQUIRED)
 include(GrVersion)
 

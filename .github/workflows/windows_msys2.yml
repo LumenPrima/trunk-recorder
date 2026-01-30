@@ -30,6 +30,8 @@ jobs:
           mingw-w64-x86_64-curl
           mingw-w64-x86_64-libuhd
           mingw-w64-x86_64-libusb
+          mingw-w64-x86_64-hackrf
+          mingw-w64-x86_64-gr-osmosdr
           mingw-w64-x86_64-sox
           mingw-w64-x86_64-fdk-aac
 
