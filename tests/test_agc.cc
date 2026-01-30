@@ -79,6 +79,76 @@ void test_gain_logic() {
     }
 }
 
+// Mock for Multi-Stage Logic Test
+struct MockAirspy {
+    double lna=0, mix=0, vga=0;
+    long clipping_response = 0;
+    double max_rssi_response = -100;
+
+    void set_gains(double l, double m, double v) {
+        lna = l; mix = m; vga = v;
+        double total_gain = lna + mix + vga; // 0 to 45
+
+        // Similar response curve
+        if (total_gain < 20) {
+            max_rssi_response = -100 + (total_gain/2);
+            clipping_response = 0;
+        } else if (total_gain < 40) {
+            max_rssi_response = -90 + (total_gain * 1.5);
+            clipping_response = 0;
+        } else {
+            max_rssi_response = -30 + (total_gain - 40);
+            clipping_response = 100 * (total_gain - 39);
+        }
+    }
+};
+
+void test_multistage_gain_logic() {
+    std::cout << "[TEST] Testing Multi-Stage Gain Calibration Logic..." << std::endl;
+
+    MockAirspy sdr;
+    double best_score = -1e9;
+    double best_lna = 0, best_mix = 0, best_vga = 0;
+
+    // Coarse Sweep Strategy from Source::calibrate_gain
+    for (double lna = 0; lna <= 15; lna += 5) {
+        for (double mix = 0; mix <= 15; mix += 5) {
+            for (double vga = 0; vga <= 15; vga += 5) {
+                sdr.set_gains(lna, mix, vga);
+
+                long clippings = sdr.clipping_response;
+                double max_rssi = sdr.max_rssi_response;
+                double noise_floor = -120; // Fixed for simulation
+
+                double dynamic_range = max_rssi - noise_floor;
+                double score = dynamic_range;
+
+                if (clippings > 0) {
+                    score -= 1000;
+                }
+
+                // std::cout << "  LNA:" << lna << " MIX:" << mix << " VGA:" << vga << " Score: " << score << std::endl;
+
+                if (score > best_score) {
+                    best_score = score;
+                    best_lna = lna; best_mix = mix; best_vga = vga;
+                }
+            }
+        }
+    }
+
+    double total = best_lna + best_mix + best_vga;
+    std::cout << "[TEST] Best Multi-Stage Gain: LNA:" << best_lna << " MIX:" << best_mix << " VGA:" << best_vga << " (Total: " << total << ")" << std::endl;
+
+    // Expect total around 35 (sweet spot in mock model)
+    if (total == 35) {
+        std::cout << "[PASS] Multi-Stage Logic selected optimal total gain." << std::endl;
+    } else {
+        std::cout << "[FAIL] Multi-Stage Logic selected sub-optimal total gain: " << total << std::endl;
+        exit(1);
+    }
+}
+
 void test_clipping_detection() {
     std::cout << "[TEST] Testing Signal Detector Clipping..." << std::endl;
 
@@ -132,6 +202,7 @@ void test_clipping_detection() {
 
 int main() {
     test_gain_logic();
+    test_multistage_gain_logic();
     test_clipping_detection();
     return 0;
 }

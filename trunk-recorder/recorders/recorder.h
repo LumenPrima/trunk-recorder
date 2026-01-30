@@ -55,6 +55,7 @@
 #include "../call.h"
 #include "../state.h"
 #include <gnuradio/blocks/file_sink.h>
+#include <op25_repeater/rx_status.h>
 
 #include "../gr_blocks/transmission_sink.h"
 
@@ -114,6 +115,7 @@ public:
   virtual int get_output_channels() { return 1; }
   virtual bool get_enable_audio_streaming() { return d_enable_audio_streaming; };
   virtual void set_enable_audio_streaming(bool enable_audio_streaming) { d_enable_audio_streaming = enable_audio_streaming; };
+  virtual Rx_Status get_rx_status() { return Rx_Status(); }
 
 protected:
   int recording_count;

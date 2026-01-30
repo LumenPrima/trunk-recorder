@@ -406,7 +406,9 @@ int signal_detector_cvf_impl::work(int noutput_items,
   const gr_complex *in = (const gr_complex *)input_items[0];
   // float* out = (float*)output_items[0];
 
-  for (unsigned int i = 0; i < d_fft_len; i++) {
+  int items_to_process = noutput_items * d_fft_len; // sync_decimator consumes output_items * decimation_factor
+
+  for (int i = 0; i < items_to_process; i++) {
     if (std::abs(in[i].real()) > 0.95 || std::abs(in[i].imag()) > 0.95) {
        clipping_count++;
     }
