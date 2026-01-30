@@ -1,0 +1,55 @@
+name: Windows MSYS2 Build
+
+on:
+  push:
+    branches: [ master, feature/windows-msys2-support ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  msys2-build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          git
+          base-devel
+          mingw-w64-x86_64-toolchain
+          mingw-w64-x86_64-cmake
+          mingw-w64-x86_64-boost
+          mingw-w64-x86_64-gnuradio
+          mingw-w64-x86_64-openssl
+          mingw-w64-x86_64-curl
+          mingw-w64-x86_64-uhd
+          mingw-w64-x86_64-libusb
+          mingw-w64-x86_64-sox
+          mingw-w64-x86_64-fdk-aac
+
+    - name: Configure CMake
+      run: |
+        mkdir build
+        cd build
+        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release ..
+
+    - name: Build
+      run: |
+        cd build
+        make -j$(nproc)
+
+    - name: Package
+      run: |
+        bash package_windows.sh
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: trunk-recorder-windows
+        path: trunk-recorder-windows.zip

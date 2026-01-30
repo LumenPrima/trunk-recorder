@@ -59,6 +59,12 @@ if(CMAKE_COMPILER_IS_GNUCXX AND NOT WIN32)
     add_definitions(-fvisibility=hidden)
 endif()
 
+if(WIN32)
+    add_definitions(-D_WIN32_WINNT=0x0600)
+    # Link against Winsock
+    link_libraries(ws2_32)
+endif()
+
 if(APPLE)
    set(CMAKE_MACOSX_RPATH ON)
 endif()
