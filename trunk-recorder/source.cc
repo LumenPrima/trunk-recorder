@@ -1,5 +1,6 @@
 #include "source.h"
 #include "formatter.h"
+#include <unistd.h>
 
 using json = nlohmann::json;
 
@@ -67,6 +68,9 @@ Source::Source(double c, double r, double e, std::string drv, std::string dev, C
   next_selector_port = 0;
   autotune_source = false;
   autotune_manager = new AutotuneManager(this);
+  gain_control_state.last_update = time(NULL);
+  gain_control_state.avg_error_rate = 0;
+  gain_control_state.samples = 0;
 
   recorder_selector = gr::blocks::selector::make(sizeof(gr_complex), 0, 0);
 
@@ -212,6 +216,9 @@ Source::Source(std::string sigmf_meta, std::string sigmf_data, bool repeat, Conf
 
 Source::Source(std::string iq_file, bool repeat, double center, double rate, Config *cfg) {
   config = cfg;
+  gain_control_state.last_update = time(NULL);
+  gain_control_state.avg_error_rate = 0;
+  gain_control_state.samples = 0;
   set_iq_source(iq_file, repeat, center, rate);
 }
 
@@ -853,4 +860,189 @@ std::vector<Recorder *> Source::get_recorders() {
     recorders.push_back((Recorder *)rx.get());
   }
   return recorders;
+}
+
+void Source::calibrate_gain() {
+    BOOST_LOG_TRIVIAL(info) << "[Source " << src_num << "] Starting Gain Calibration...";
+
+    // Detect multi-stage capability
+    bool has_lna = false;
+    bool has_mix = false;
+    bool has_vga = false;
+
+    // Note: get_gain_by_name uses "osmosdr" driver specific check internally
+    if (driver == "osmosdr") {
+        if (get_gain_by_name("LNA") != -1) has_lna = true;
+        if (get_gain_by_name("MIX") != -1) has_mix = true;
+        if (get_gain_by_name("VGA") != -1) has_vga = true;
+    }
+
+    if (has_lna && has_mix && has_vga) {
+        BOOST_LOG_TRIVIAL(info) << "[Source " << src_num << "] Multi-Stage Gain (LNA/MIX/VGA) detected.";
+
+        // Airspy Strategy:
+        // Prioritize LNA (Sensitivity) -> MIX -> VGA (Linearity)
+        // Simple sweep strategy:
+        // 1. Set MIX/VGA to mid/low. Sweep LNA to find sweet spot (good signal, no clip).
+        // 2. Lock LNA. Sweep MIX.
+        // 3. Lock MIX. Sweep VGA.
+
+        // Simplified for PoC: Iterative sweep.
+
+        double best_score = -1e9;
+        double best_lna = 0, best_mix = 0, best_vga = 0;
+
+        // Coarse Sweep
+        for (double lna = 0; lna <= 15; lna += 5) {
+            for (double mix = 0; mix <= 15; mix += 5) {
+                for (double vga = 0; vga <= 15; vga += 5) {
+                    set_gain_by_name("LNA", lna);
+                    set_gain_by_name("MIX", mix);
+                    set_gain_by_name("VGA", vga);
+
+                    usleep(100000);
+                    signal_detector->reset_clipping_count();
+                    usleep(200000);
+
+                    long clippings = signal_detector->get_clipping_count();
+                    std::vector<Detected_Signal> signals = signal_detector->get_detected_signals();
+
+                    double max_rssi = -120;
+                    double noise_floor = -120;
+                    if (!signals.empty()) {
+                        for (auto& s : signals) {
+                            if (s.max_rssi > max_rssi) max_rssi = s.max_rssi;
+                            noise_floor = s.threshold;
+                        }
+                    }
+
+                    double dynamic_range = max_rssi - noise_floor;
+                    double score = dynamic_range;
+                    if (clippings > 0) score -= 1000;
+
+                    if (score > best_score) {
+                        best_score = score;
+                        best_lna = lna; best_mix = mix; best_vga = vga;
+                    }
+                }
+            }
+        }
+
+        BOOST_LOG_TRIVIAL(info) << "[Source " << src_num << "] Calibration Complete. Best LNA:" << best_lna << " MIX:" << best_mix << " VGA:" << best_vga;
+        set_gain_by_name("LNA", best_lna);
+        set_gain_by_name("MIX", best_mix);
+        set_gain_by_name("VGA", best_vga);
+
+    } else {
+        // Fallback to Global Gain Sweep
+        double best_gain = 0;
+        double best_score = -1e9;
+
+        for (double g = 0; g <= 45; g += 5) {
+            set_gain(g);
+            usleep(200000);
+
+            signal_detector->reset_clipping_count();
+            usleep(500000);
+
+            long clippings = signal_detector->get_clipping_count();
+            std::vector<Detected_Signal> signals = signal_detector->get_detected_signals();
+
+            double max_rssi = -100;
+            double noise_floor = -100;
+
+            if (!signals.empty()) {
+                for (auto& s : signals) {
+                    if (s.max_rssi > max_rssi) max_rssi = s.max_rssi;
+                    noise_floor = s.threshold;
+                }
+            }
+
+            double dynamic_range = max_rssi - noise_floor;
+            double score = dynamic_range;
+
+            if (clippings > 0) {
+                score -= 1000;
+            }
+
+            BOOST_LOG_TRIVIAL(info) << "  Gain: " << g << " Clipping: " << clippings
+                                    << " DynRange: " << dynamic_range << " Score: " << score;
+
+            if (score > best_score) {
+                best_score = score;
+                best_gain = g;
+            }
+        }
+
+        BOOST_LOG_TRIVIAL(info) << "[Source " << src_num << "] Calibration Complete. Best Gain: " << best_gain;
+        set_gain(best_gain);
+    }
+}
+
+void Source::process_gain_control() {
+    time_t current_time = time(NULL);
+    if (current_time - gain_control_state.last_update < 5) {
+        return; // Only run every 5 seconds
+    }
+
+    long clipping = signal_detector->get_clipping_count();
+    signal_detector->reset_clipping_count();
+
+    // Collect error stats from P25 recorders
+    double total_errors = 0;
+    long count = 0;
+
+    for (auto& rx : digital_recorders) {
+        if (rx->is_active()) {
+            Rx_Status status = rx->get_rx_status();
+             if (status.total_len > 0) {
+                 total_errors += status.error_count;
+                 count++;
+             }
+        }
+    }
+
+    // Detect multi-stage capability (simple check)
+    bool has_lna = (get_gain_by_name("LNA") != -1);
+    bool has_mix = (get_gain_by_name("MIX") != -1);
+    bool has_vga = (get_gain_by_name("VGA") != -1);
+    bool multi_stage = (has_lna && has_mix && has_vga);
+
+    if (multi_stage) {
+        double current_lna = get_gain_by_name("LNA");
+        double current_mix = get_gain_by_name("MIX");
+        double current_vga = get_gain_by_name("VGA");
+
+        if (clipping > 50) {
+            BOOST_LOG_TRIVIAL(info) << "[Source " << src_num << "] High Clipping (" << clipping << "). Reducing Gain Stages.";
+            // Reduce VGA first, then MIX, then LNA
+            if (current_vga > 0) set_gain_by_name("VGA", current_vga - 1);
+            else if (current_mix > 0) set_gain_by_name("MIX", current_mix - 1);
+            else if (current_lna > 0) set_gain_by_name("LNA", current_lna - 1);
+
+        } else if (count > 0 && total_errors > 50) {
+            if (clipping == 0) {
+                 BOOST_LOG_TRIVIAL(info) << "[Source " << src_num << "] High Errors (" << total_errors << "). Increasing Gain Stages.";
+                 // Increase LNA first, then MIX, then VGA
+                 if (current_lna < 15) set_gain_by_name("LNA", current_lna + 1);
+                 else if (current_mix < 15) set_gain_by_name("MIX", current_mix + 1);
+                 else if (current_vga < 15) set_gain_by_name("VGA", current_vga + 1);
+            }
+        }
+    } else {
+        // Global Gain Strategy
+        double current_gain = get_gain();
+
+        if (clipping > 50) {
+            BOOST_LOG_TRIVIAL(info) << "[Source " << src_num << "] High Clipping (" << clipping << "). Reducing Gain.";
+            set_gain(current_gain - 2);
+        } else if (count > 0 && total_errors > 50) {
+            if (clipping == 0) {
+                 BOOST_LOG_TRIVIAL(info) << "[Source " << src_num << "] High Errors (" << total_errors << ") & No Clipping. Increasing Gain.";
+                 set_gain(current_gain + 2);
+            }
+        }
+    }
+
+    gain_control_state.last_update = current_time;
 }

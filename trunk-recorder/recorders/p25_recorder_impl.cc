@@ -144,6 +144,14 @@ void p25_recorder_impl::autotune() {
   }*/
 }
 
+Rx_Status p25_recorder_impl::get_rx_status() {
+  if (qpsk_mod) {
+    return qpsk_p25_decode->get_rx_status();
+  } else {
+    return fsk4_p25_decode->get_rx_status();
+  }
+}
+
 int p25_recorder_impl::get_freq_error() { // get frequency error from FLL and convert to Hz
   return prefilter->get_freq_error();
 }

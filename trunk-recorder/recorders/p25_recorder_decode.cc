@@ -145,6 +145,10 @@ void p25_recorder_decode::reset() {
   op25_frame_assembler->clear();
 }
 
+Rx_Status p25_recorder_decode::get_rx_status() {
+  return op25_frame_assembler->get_rx_status();
+}
+
 gr::op25_repeater::p25_frame_assembler::sptr p25_recorder_decode::get_transmission_sink() {
   return op25_frame_assembler;
 }

@@ -111,6 +111,7 @@ public:
   long elapsed();
   Source *get_source();
   void autotune();
+  Rx_Status get_rx_status();
 
 protected:
   State state;

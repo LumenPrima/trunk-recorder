@@ -864,6 +864,13 @@ int monitor_messages(Config &config, gr::top_block_sptr &tb, std::vector<Source 
   smartnet_parser = new SmartnetParser(systems.front()); // this has to eventually be generic;
   p25_parser = new P25Parser();
 
+  // Initial Rough Calibration
+  for (auto& source : sources) {
+      if (source->get_driver() == "osmosdr" || source->get_driver() == "usrp") {
+          source->calibrate_gain();
+      }
+  }
+
   while (1) {
 
     if (exit_flag) { // my action when signal set it 1
@@ -958,6 +965,11 @@ int monitor_messages(Config &config, gr::top_block_sptr &tb, std::vector<Source 
         if (!source->got_samples()) {
           BOOST_LOG_TRIVIAL(error) << "Source " << source->get_num() << " has stopped receiving samples - Terminating trunk recorder";
           exit(1);
+        }
+
+        // Runtime Gain Adjustment
+        if (source->get_driver() == "osmosdr" || source->get_driver() == "usrp") {
+             source->process_gain_control();
         }
       }
       last_decode_rate_check = current_time;

@@ -122,6 +122,8 @@ public:
     virtual void set_sensitivity(float d_sensitivity) = 0;
     virtual void set_auto_threshold(bool d_auto_threshold) = 0;
     virtual void set_average(float d_average) = 0;
+    virtual long get_clipping_count() = 0;
+    virtual void reset_clipping_count() = 0;
 };
 
 //} // namespace inspector
