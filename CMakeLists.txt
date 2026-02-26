@@ -59,6 +59,12 @@ if(CMAKE_COMPILER_IS_GNUCXX AND NOT WIN32)
     add_definitions(-fvisibility=hidden)
 endif()
 
+if(WIN32)
+    add_definitions(-D_WIN32_WINNT=0x0600)
+    # Link against Winsock
+    link_libraries(ws2_32)
+endif()
+
 if(APPLE)
    set(CMAKE_MACOSX_RPATH ON)
 endif()
@@ -71,8 +77,17 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 # Install directories
 ########################################################################
 include(FindPkgConfig)
+
+if(WIN32)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+endif()
+
 find_package(Gnuradio REQUIRED)
 include(GrVersion)
+
+if(GnuradioOsmosdr_FOUND OR GNURADIO_OSMOSDR_FOUND)
+    add_definitions(-DHAVE_GNURADIO_OSMOSDR)
+endif()
 
 set(GR_REQUIRED_COMPONENTS RUNTIME ANALOG BLOCKS DIGITAL FILTER FFT PMT)
 find_package(Gnuradio REQUIRED COMPONENTS runtime analog blocks digital filter fft)
